@@ -1,4 +1,4 @@
-
+DEMO Link: https://youtu.be/VBOse89Sf5k
 requirement: Python 3.8, tkinter, numpy
 GAME Title: Zombie Escape
 
