@@ -1,48 +1,68 @@
 import tkinter as tk
+import numpy as np
+from multiprocessing import shared_memory
+import time
 
-def run_gui(shared_map, conn_p, conn_z, game_over):
+def run_gui(shm_name, width, height, conn, game_over, score, lives, start_time):
     root = tk.Tk()
-    root.title("🧟 Zombie Escape")
-
-    grid_size = shared_map.width
-    cell_size = 40
-
-    canvas = tk.Canvas(root, width=grid_size * cell_size, height=grid_size * cell_size, bg='black')
+    root.title("Zombie Escape")
+    canvas = tk.Canvas(root, width=width * 40, height=height * 40)
     canvas.pack()
 
-    def send_move(direction):
-        print(f"[GUI] Sending move: {direction}")
-        conn_p.send(direction)
+    score_label = tk.Label(root, text="Score: 0", font=("Arial", 14))
+    score_label.pack()
 
-    root.bind("<Up>", lambda event: send_move("UP"))
-    root.bind("<Down>", lambda event: send_move("DOWN"))
-    root.bind("<Left>", lambda event: send_move("LEFT"))
-    root.bind("<Right>", lambda event: send_move("RIGHT"))
+    time_label = tk.Label(root, text="Time Left: 05:00", font=("Arial", 14))
+    time_label.pack()
 
-    def update_gui():
+    lives_label = tk.Label(root, text="❤️❤️❤️❤️❤️", font=("Arial", 18))
+    lives_label.pack()
+
+    shm = shared_memory.SharedMemory(name=shm_name)
+    grid = np.ndarray((height, width), dtype='S1', buffer=shm.buf)
+
+    def send_command(cmd):
+        conn.send(cmd)
+
+    root.bind("<Up>", lambda e: send_command("UP"))
+    root.bind("<Down>", lambda e: send_command("DOWN"))
+    root.bind("<Left>", lambda e: send_command("LEFT"))
+    root.bind("<Right>", lambda e: send_command("RIGHT"))
+
+    def draw():
         if game_over.value:
-            print("[GUI] Game over! Closing window.")
+            print("[GUI] Game over. Closing window.")
             root.destroy()
             return
 
         canvas.delete("all")
-        for y in range(grid_size):
-            for x in range(grid_size):
-                val = shared_map.get(x, y)
-                if val == " ":
-                    continue
-                color = (
-                    "green" if val == "P"
-                    else "red" if val == "Z"
-                    else "gray"
-                )
+        for y in range(height):
+            for x in range(width):
+                val = grid[y][x]
+                color = {
+                b'P': "green",
+                b'Z': "red",
+                b'K': "yellow",
+                b'H': "pink",
+                b' ': "black"
+            }.get(val, "gray")
                 canvas.create_rectangle(
-                    x * cell_size, y * cell_size,
-                    (x + 1) * cell_size, (y + 1) * cell_size,
-                    fill=color,
-                    outline="white"
+                    x * 40, y * 40, (x + 1) * 40, (y + 1) * 40,
+                    fill=color, outline="white"
                 )
-        root.after(100, update_gui)
 
-    update_gui()
+        score_label.config(text=f"Score: {score.value}")
+        hearts = "❤️" * lives.value + "🖤" * (5 - lives.value)
+        lives_label.config(text=hearts)
+
+
+        elapsed = int(time.time() - start_time)
+        remaining = max(0, 300 - elapsed)
+        minutes, seconds = divmod(remaining, 60)
+        time_label.config(text=f"Time Left: {minutes:02}:{seconds:02}")
+
+        root.after(100, draw)
+
+    draw()
     root.mainloop()
+    shm.close()

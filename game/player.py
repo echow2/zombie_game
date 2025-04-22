@@ -1,36 +1,80 @@
-from shared.map_state import SharedMap
 import time
+import numpy as np
+from multiprocessing import shared_memory
 
-def player_process(shared_list, lock, width, height, conn, game_over):
-    shared_map = SharedMap(shared_list, lock, width, height)
+def player_process(shm_name, width, height, conn, sem_key, game_over, score, lives):
+    shm = shared_memory.SharedMemory(name=shm_name)
+    grid = np.ndarray((height, width), dtype='S1', buffer=shm.buf)
     x, y = 0, 0
-    shared_map.set(x, y, "P")
-    print("[Player] Started at (0,0)")
+    grid[y][x] = b'P'
 
     while not game_over.value:
         if conn.poll():
             direction = conn.recv()
-            print(f"[Player] Received direction: {direction}")
-            new_x, new_y = x, y
+            nx, ny = x, y
 
             if direction == "UP":
-                new_y = max(0, y - 1)
+                ny = max(0, y - 1)
             elif direction == "DOWN":
-                new_y = min(height - 1, y + 1)
+                ny = min(height - 1, y + 1)
             elif direction == "LEFT":
-                new_x = max(0, x - 1)
+                nx = max(0, x - 1)
             elif direction == "RIGHT":
-                new_x = min(width - 1, x + 1)
+                nx = min(width - 1, x + 1)
 
-            dest = shared_map.get(new_x, new_y)
-            if dest == "Z":
-                print("[Player] Eaten by zombie!")
-                game_over.value = True
-            elif dest == " ":
-                shared_map.set(x, y, " ")
-                shared_map.set(new_x, new_y, "P")
-                x, y = new_x, new_y
-                print(f"[Player] Moved to ({x},{y})")
-        time.sleep(0.05)
+            target = grid[ny][nx]
 
-    print("[Player] Game over. Exiting.")
+            if target == b'Z':
+                lives.value -= 1
+                print(f"[Player] Caught! Lives left: {lives.value}")
+                if lives.value <= 0:
+                    game_over.value = True
+                    print("[Player] Game over.")
+                else:
+                    grid[y][x] = b' '
+                    x, y = 0, 0
+                    grid[y][x] = b'P'
+
+            elif target == b'K':
+                if sem_key.acquire(block=False):
+                    print("[Player] Picked up key")
+                    score.value += 1
+                    grid[y][x] = b' '
+                    x, y = nx, ny
+                    grid[y][x] = b'P'
+                    sem_key.release()
+
+                    # Respawn key
+                    import random
+                    while True:
+                        rx, ry = random.randint(0, width - 1), random.randint(0, height - 1)
+                        if grid[ry][rx] == b' ':
+                            grid[ry][rx] = b'K'
+                            break
+
+            elif target == b'H':
+                if lives.value < 5:
+                    lives.value += 1
+                    print(f"[Player] Picked up heart! Lives: {lives.value}")
+                else:
+                    print("[Player] Picked up heart but already at max lives.")
+                grid[y][x] = b' '
+                x, y = nx, ny
+                grid[y][x] = b'P'
+
+                # Respawn heart
+                import random
+                while True:
+                    rx, ry = random.randint(0, width - 1), random.randint(0, height - 1)
+                    if grid[ry][rx] == b' ':
+                        grid[ry][rx] = b'H'
+                        break
+
+            elif target == b' ':
+                grid[y][x] = b' '
+                x, y = nx, ny
+                grid[y][x] = b'P'
+
+        time.sleep(0.1)
+
+    shm.close()
