@@ -50,7 +50,7 @@ if __name__ == "__main__":
 
     # Spawn 2 zombies
     zombie_threads = []
-    for i in range(2):
+    for i in range(3):
         z = Process(target=zombie_process, args=(shm.name, WIDTH, HEIGHT, game_over, i))
         z.start()
         zombie_threads.append(z)
